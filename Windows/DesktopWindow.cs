@@ -25,6 +25,16 @@ namespace OpenSkin
         [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr handle, IntPtr after, int x, int y, int width, int height, uint flags);
         [DllImport("user32.dll")] internal static extern uint GetDpiForWindow(IntPtr handle);
 
+        [DllImport("user32.dll")] internal static extern IntPtr GetWindow(IntPtr window, uint relation);
+        [DllImport("user32.dll")] internal static extern bool SetForegroundWindow(IntPtr window);
+        [DllImport("user32.dll")] internal static extern bool ShowWindowAsync(IntPtr window, int command);
+        delegate bool WindowVisitor(IntPtr window, IntPtr data);
+        [DllImport("user32.dll")] static extern bool EnumWindows(WindowVisitor visitor, IntPtr data);
+        [DllImport("kernel32.dll")] static extern IntPtr OpenProcess(uint access, bool inherit, int pid);
+        [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
+        static extern int GetPackageFamilyName(IntPtr process, ref uint length, StringBuilder family);
+
         internal static int ProcessId(IntPtr window)
         {
             GetWindowThreadProcessId(window, out int pid);
@@ -40,25 +50,45 @@ namespace OpenSkin
 
         internal static bool IsCodex(IntPtr handle, int pid)
         {
-            if (pid == 0 || !IsWindowVisible(handle) || IsIconic(handle) ||
+            if (pid == 0 || !IsWindowVisible(handle) || GetWindow(handle, 4) != IntPtr.Zero ||
                 (GetWindowLong(handle, -20) & 0x80) != 0) return false;
             var name = new StringBuilder(256);
             GetClassName(handle, name, name.Capacity);
-            if (!name.ToString().StartsWith("Chrome_WidgetWin_", StringComparison.Ordinal)) return false;
+            if (name.ToString() == "ConsoleWindowClass" || name.ToString() == "CASCADIA_HOSTING_WINDOW_CLASS") return false;
             try
             {
                 using (var proc = Process.GetProcessById(pid))
-                    return proc.ProcessName.Equals("Codex", StringComparison.OrdinalIgnoreCase);
+                    if (proc.ProcessName.Equals("Codex", StringComparison.OrdinalIgnoreCase)) return true;
+                var process = OpenProcess(0x1000, false, pid); // PROCESS_QUERY_LIMITED_INFORMATION
+                if (process == IntPtr.Zero) return false;
+                try {
+                    uint length = 256;
+                    var family = new StringBuilder((int)length);
+                    return GetPackageFamilyName(process, ref length, family) == 0 &&
+                        family.ToString().StartsWith("OpenAI.Codex_", StringComparison.OrdinalIgnoreCase);
+                } finally { CloseHandle(process); }
             }
             catch (ArgumentException) { return false; }
             catch (InvalidOperationException) { return false; }
             catch (System.ComponentModel.Win32Exception) { return false; }
         }
 
-        internal const int ClickThroughStyle = 0x08000000 | 0x00000080 | 0x00080000 | 0x20;
-        internal static IntPtr Configure(Window window, bool clickThrough)
+        internal static IntPtr FindCodex()
         {
-            var handle = new WindowInteropHelper(window).EnsureHandle();
+            var found = IntPtr.Zero;
+            EnumWindows((window, _) => {
+                if (!IsCodex(window, ProcessId(window))) return true;
+                found = window;
+                return false;
+            }, IntPtr.Zero);
+            return found;
+        }
+
+        internal const int ClickThroughStyle = 0x08000000 | 0x00000080 | 0x00080000 | 0x20;
+        internal static IntPtr Configure(Window window, IntPtr owner, bool clickThrough)
+        {
+            var interop = new WindowInteropHelper(window) { Owner = owner };
+            var handle = interop.EnsureHandle();
             int extra = clickThrough ? ClickThroughStyle : 0x08000080;
             SetWindowLong(handle, -20, GetWindowLong(handle, -20) | extra);
             return handle;
@@ -67,8 +97,8 @@ namespace OpenSkin
         internal static bool Place(IntPtr window, Rect rect)
         {
             // Physical pixels in the same per-monitor DPI context as the DWM bounds.
-            return SetWindowPos(window, new IntPtr(-1), rect.Left, rect.Top,
-                rect.Right - rect.Left, rect.Bottom - rect.Top, 0x0010 | 0x0200);
+            return SetWindowPos(window, IntPtr.Zero, rect.Left, rect.Top,
+                rect.Right - rect.Left, rect.Bottom - rect.Top, 0x0010 | 0x0200 | 0x0004);
         }
     }
 }

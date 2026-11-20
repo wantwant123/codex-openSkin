@@ -5,9 +5,6 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Interop;
-using System.Windows.Media;
 using System.Windows.Threading;
 using Forms = System.Windows.Forms;
 
@@ -25,11 +22,13 @@ namespace OpenSkin
         IntPtr target;
         int targetPid;
         Playback playback;
-        Window preview;
+        bool fullFilmPending;
+        internal readonly Forms.ToolStripMenuItem ReplayItem = new Forms.ToolStripMenuItem("在 Codex 上播放开屏");
+        internal readonly Forms.ToolStripMenuItem PreviewItem = new Forms.ToolStripMenuItem("在 Codex 上播放完整影片");
 
         [STAThread] static int Main(string[] args)
         {
-            if (args.Length == 2 && args[0] == "--self-test") return SmokeTest.Run(args[1]);
+            if (args.Length == 3 && args[0] == "--self-test") return SmokeTest.Run(args[1], args[2]);
             using (var mutex = new Mutex(true, @"Local\CodexOpenSkin", out bool first)) {
                 if (!first) return 0;
                 var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
@@ -42,7 +41,7 @@ namespace OpenSkin
             }
         }
 
-        Program()
+        internal Program()
         {
             if (File.Exists(settings)) {
                 try {
@@ -56,15 +55,14 @@ namespace OpenSkin
             var loop = new Forms.ToolStripMenuItem("开屏后保留动态背景") { Checked = ambient, CheckOnClick = true };
             loop.Click += (s,e) => { ambient = loop.Checked; Stop(); Save(); };
             menu.Items.Add(enabled); menu.Items.Add(loop);
-            menu.Items.Add("播放一次开屏", null, (s,e) => {
-                Stop(); replayUntil = DateTime.UtcNow.AddSeconds(15); Notify("请在 15 秒内切回 Codex 窗口。");
-            });
-            menu.Items.Add("完整预览", null, (s,e) => Preview());
+            ReplayItem.Click += (s,e) => RequestPlayback(false);
+            PreviewItem.Click += (s,e) => RequestPlayback(true);
+            menu.Items.Add(ReplayItem); menu.Items.Add(PreviewItem);
             menu.Items.Add("立即关闭动画", null, (s,e) => Stop());
             menu.Items.Add("退出", null, (s,e) => Application.Current.Shutdown());
             tray.ContextMenuStrip = menu; tray.Icon = SystemIcons.Application;
             tray.Text = "Codex · 翡翠觉醒"; tray.Visible = true;
-            tray.DoubleClick += (s,e) => Preview();
+            tray.DoubleClick += (s,e) => ReplayItem.PerformClick();
             timer.Interval = TimeSpan.FromMilliseconds(200);
             timer.Tick += (s,e) => Tick(); timer.Start();
         }
@@ -87,10 +85,16 @@ namespace OpenSkin
                     if (!DesktopWindow.IsWindow(item.Key) || DesktopWindow.ProcessId(item.Key) != item.Value) seen.Remove(item.Key);
                 pruneAt = DateTime.UtcNow.AddSeconds(2);
             }
+            if (replayUntil != DateTime.MinValue && DateTime.UtcNow >= replayUntil) {
+                Stop(); Notify("未找到前台 Codex 桌面窗口。打开 Codex 后可从托盘重播。");
+            }
             if (playback != null) {
                 if (!DesktopWindow.IsWindow(target) || DesktopWindow.ProcessId(target) != targetPid) { Stop(); return; }
-                playback.Update(target, foreground == target);
-                return;
+                if (foreground == target || !DesktopWindow.IsCodex(foreground, DesktopWindow.ProcessId(foreground))) {
+                    playback.Update(target, foreground == target);
+                    return;
+                }
+                Stop();
             }
             bool manual = DateTime.UtcNow < replayUntil;
             if ((!auto && !manual) || foreground == IntPtr.Zero) return;
@@ -99,7 +103,7 @@ namespace OpenSkin
                 !DesktopWindow.IsCodex(foreground, pid)) return;
             seen[foreground] = pid; target = foreground; targetPid = pid;
             replayUntil = DateTime.MinValue;
-            playback = new Playback(ambient, Stop, message => { Stop(); Notify(message); });
+            playback = new Playback(target, manual && fullFilmPending, ambient, Stop, message => { Stop(); Notify(message); });
             timer.Interval = TimeSpan.FromMilliseconds(33);
             playback.Update(target, true);
         }
@@ -111,22 +115,24 @@ namespace OpenSkin
             timer.Interval = TimeSpan.FromMilliseconds(200);
         }
 
-        void Preview()
+        void RequestPlayback(bool fullFilm)
         {
-            if (preview != null) { preview.Activate(); return; }
-            var player = new MediaElement { LoadedBehavior = MediaState.Manual, Stretch = Stretch.Uniform,
-                Source = new Uri(Playback.Asset("full_preview.mp4")) };
-            preview = new Window { Title = "翡翠觉醒 · 完整预览", Content = player, Background = Brushes.Black,
-                Width = 960, Height = 565, WindowStartupLocation = WindowStartupLocation.CenterScreen };
-            preview.Closed += (s,e) => { player.Close(); preview = null; };
-            player.MediaEnded += (s,e) => preview?.Close();
-            player.MediaFailed += (s,e) => { preview?.Close(); Notify("系统未能解码影片。"); };
-            preview.Show(); player.Play();
+            Stop();
+            fullFilmPending = fullFilm;
+            replayUntil = DateTime.UtcNow.AddSeconds(15);
+            var window = DesktopWindow.FindCodex();
+            if (window != IntPtr.Zero) {
+                if (DesktopWindow.IsIconic(window)) DesktopWindow.ShowWindowAsync(window, 9);
+                DesktopWindow.SetForegroundWindow(window);
+            }
+            if (window == IntPtr.Zero || DesktopWindow.GetForegroundWindow() != window)
+                Notify("请打开或切回 Codex 桌面窗口，动画会在其中播放。");
+            Tick();
         }
 
         public void Dispose()
         {
-            timer.Stop(); Stop(); preview?.Close(); tray.Visible = false; tray.ContextMenuStrip.Dispose(); tray.Dispose();
+            timer.Stop(); Stop(); tray.Visible = false; tray.ContextMenuStrip.Dispose(); tray.Dispose();
         }
     }
 }

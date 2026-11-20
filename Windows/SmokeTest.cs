@@ -1,8 +1,9 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Windows.Controls;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Threading;
 
@@ -23,59 +24,83 @@ namespace OpenSkin
             timer.Start(); Dispatcher.PushFrame(frame);
         }
 
-        static void CheckPlayback(Application app, IntPtr target)
+        static void WaitFor(Func<bool> condition, string label)
         {
-            string failure = null;
-            using (var session = new Playback(false, () => {}, message => failure = message)) {
-                session.Update(target, true);
-                var film = app.Windows.Cast<Window>().Single(w => w.Content is Grid);
-                var player = ((Grid)film.Content).Children.OfType<MediaElement>().Single();
-                Check(film.IsVisible, "Playback overlay shown");
-                for (int i = 0; i < 100 && failure == null && player.Position.TotalMilliseconds < 160; i++) Pump(100);
-                Check(failure == null, failure);
-                Check(player.NaturalVideoWidth > 0 && player.Position.TotalMilliseconds >= 160, "Intro playback did not advance");
-                session.Update(target, false);
-                Pump(150);
-                var paused = player.Position;
-                Pump(250);
-                Check(!film.IsVisible && Math.Abs((player.Position-paused).TotalMilliseconds) < 100, "Playback hides and pauses");
-                session.Update(target, true);
-                for (int i = 0; i < 25 && player.Position <= paused; i++) Pump(100);
-                Check(film.IsVisible && player.Position > paused, "Playback resumes");
-            }
+            for (int i = 0; i < 80 && !condition(); i++) Pump(100);
+            Check(condition(), label);
         }
 
-        internal static int Run(string report)
+        static Window Film(Application app) => app.Windows.Cast<Window>().SingleOrDefault(w => w.Content is Grid);
+
+        static void CheckAttached(Application app, IntPtr target)
+        {
+            var film = Film(app);
+            var hwnd = new WindowInteropHelper(film).Handle;
+            var skip = app.Windows.Cast<Window>().Single(w => w.Content is Button);
+            Check(DesktopWindow.GetWindow(hwnd, 4) == target, "Film HWND must be owned by the external target");
+            Check(DesktopWindow.GetWindow(new WindowInteropHelper(skip).Handle, 4) == hwnd, "Skip belongs to film");
+            int styles = DesktopWindow.GetWindowLong(hwnd, -20);
+            Check((styles & DesktopWindow.ClickThroughStyle) == DesktopWindow.ClickThroughStyle, "Mouse pass-through and no activation");
+            Check((styles & (0x8 | 0x40000)) == 0, "No desktop-wide topmost or app window style");
+            Check(DesktopWindow.GetForegroundWindow() == target, "Target keeps keyboard focus");
+            WaitFor(() => DesktopWindow.TryBounds(target, out var a) && DesktopWindow.TryBounds(hwnd, out var b) &&
+                a.Equals(b), "Visible overlay must match the target bounds");
+        }
+
+        static void Exercise(Application app, Process fixture)
+        {
+            WaitFor(() => { fixture.Refresh(); return fixture.MainWindowHandle != IntPtr.Zero; }, "Fixture did not open");
+            var target = fixture.MainWindowHandle;
+            Check(DesktopWindow.IsCodex(target, fixture.Id), "Detect desktop Codex without a Chromium class");
+            var unrelated = new Window { Title = "Codex", Width = 270, Height = 130 };
+            unrelated.Show();
+            Check(!DesktopWindow.IsCodex(new WindowInteropHelper(unrelated).Handle, Process.GetCurrentProcess().Id),
+                "Reject unrelated process even with Codex window title");
+
+            using (var host = new Program()) {
+                host.ReplayItem.PerformClick();
+                WaitFor(() => Film(app)?.IsVisible == true, "Tray replay did not cover Codex");
+                CheckAttached(app, target);
+                var movie = ((Grid)Film(app).Content).Children.OfType<MediaElement>().Single();
+                WaitFor(() => movie.NaturalVideoWidth > 0 && movie.Position.TotalMilliseconds > 150, "Intro did not play");
+                Check(Path.GetFileName(movie.Source.LocalPath) == "intro.mp4", "Replay media");
+                Check(DesktopWindow.Place(target, new DesktopWindow.Rect { Left=125, Top=105, Right=805, Bottom=525 }), "Move target");
+                Pump(200);
+                CheckAttached(app, target);
+
+                unrelated.Activate();
+                WaitFor(() => !Film(app).IsVisible, "Overlay must hide when switching away");
+                Pump(150); var paused = movie.Position; Pump(250);
+                Check(Math.Abs((movie.Position-paused).TotalMilliseconds) < 100, "Playback paused");
+                DesktopWindow.SetForegroundWindow(target);
+                WaitFor(() => Film(app).IsVisible && movie.Position > paused, "Playback resumes");
+                DesktopWindow.ShowWindowAsync(target, 6);
+                WaitFor(() => DesktopWindow.IsIconic(target) && !Film(app).IsVisible, "Hide when minimized");
+                host.PreviewItem.PerformClick();
+                WaitFor(() => Film(app)?.IsVisible == true, "Full film must restore and cover Codex");
+                CheckAttached(app, target);
+                movie = ((Grid)Film(app).Content).Children.OfType<MediaElement>().Single();
+                Check(Path.GetFileName(movie.Source.LocalPath) == "full_preview.mp4", "Full film media");
+                Check(app.Windows.Cast<Window>().All(w => w == unrelated || !w.ShowInTaskbar), "No separate player");
+                fixture.CloseMainWindow();
+                WaitFor(() => fixture.HasExited && Film(app) == null, "Owner exit must clear overlay");
+                host.PreviewItem.PerformClick(); Pump(300);
+                Check(Film(app) == null && app.Windows.Count == 1, "No target must not open a player");
+            }
+            unrelated.Close();
+        }
+
+        internal static int Run(string report, string fixturePath)
         {
             try {
                 var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
                 foreach (var name in new[] { "intro.mp4", "loop.mp4", "full_preview.mp4", "poster.jpg" })
                     Check(new FileInfo(Playback.Asset(name)).Length > 0, "Missing " + name);
-                var fixture = new Window { Width = 480, Height = 360, ShowInTaskbar = false, WindowStyle = WindowStyle.None };
-                fixture.Show();
-                var handle = new WindowInteropHelper(fixture).Handle;
-                var probe = new Window { WindowStyle = WindowStyle.None, ShowActivated = false, AllowsTransparency = true };
-                var overlay = DesktopWindow.Configure(probe, true);
-                probe.Show();
-                Check(DesktopWindow.ProcessId(handle) == System.Diagnostics.Process.GetCurrentProcess().Id, "Owner PID");
-                Check(!DesktopWindow.IsCodex(handle, DesktopWindow.ProcessId(handle)), "Reject unrelated window");
-                Check((DesktopWindow.GetWindowLong(overlay,-20) & DesktopWindow.ClickThroughStyle) ==
-                    DesktopWindow.ClickThroughStyle, "Nonactivating click-through style");
-                foreach (var x in new[] { 50, 160 }) {
-                    var bounds = new DesktopWindow.Rect { Left=x, Top=x, Right=x+500, Bottom=x+330 };
-                    Check(DesktopWindow.Place(handle, bounds), "Fixture move");
-                    Check(DesktopWindow.TryBounds(handle, out var target), "Read target bounds");
-                    Check(DesktopWindow.Place(overlay, target), "Move overlay");
-                    Check(DesktopWindow.TryBounds(overlay, out var actual) && actual.Equals(target), "Follow bounds");
+                using (var fixture = Process.Start(fixturePath)) {
+                    try { Exercise(app, fixture); }
+                    finally { if (!fixture.HasExited) fixture.Kill(); }
                 }
-                fixture.WindowState = WindowState.Minimized;
-                Check(DesktopWindow.IsIconic(handle), "Detect minimized window");
-                probe.Close();
-                fixture.WindowState = WindowState.Normal;
-                CheckPlayback(app, handle);
-                fixture.Close();
-                Check(!DesktopWindow.IsWindow(handle), "Detect closed window");
-                File.WriteAllText(report, "PASS: packaged media, PID, target filtering, click-through, native move/resize, minimize, close, playback overlay hide/restore and film progression.");
+                File.WriteAllText(report, "PASS: external process detection, tray replay and full film, native ownership, bounds, focus, click-through styles, move, hide, pause/resume, minimize, owner close, missing target.");
                 return 0;
             } catch (Exception error) { File.WriteAllText(report, error.ToString()); return 1; }
         }
