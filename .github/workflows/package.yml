@@ -49,7 +49,7 @@ jobs:
           $dir = Resolve-Path dist/CodexOpenSkin
           $report = Join-Path $env:RUNNER_TEMP smoke.txt
           $fixture = Join-Path $env:RUNNER_TEMP Codex.exe
-          & "$env:WINDIR/Microsoft.NET/Framework64/v4.0.30319/csc.exe" /nologo /target:winexe "/out:$fixture" Tests/WindowsFixture.cs
+          & "$env:WINDIR/Microsoft.NET/Framework64/v4.0.30319/csc.exe" /nologo /target:winexe "/out:$fixture" (Resolve-Path Tests/WindowsFixture.cs).Path
           if ($LASTEXITCODE -ne 0) { throw 'Fixture build failed' }
           $p = Start-Process "$dir/CodexOpenSkin.exe" -ArgumentList "--self-test `"$report`" `"$fixture`"" -PassThru
           if (-not $p.WaitForExit(60000)) { $p.Kill(); throw 'Window test timed out' }
