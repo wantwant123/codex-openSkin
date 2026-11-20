@@ -1,0 +1,87 @@
+name: Package OpenSkin
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test window tracking and package universal app
+        run: |
+          set -euo pipefail
+          bash scripts/test.sh
+          ARCH=arm64 bash scripts/build.sh
+          app=build/CodexBootAnimation.app
+          exe="$app/Contents/MacOS/CodexBootAnimation"
+          cp "$exe" build/arm64
+          ARCH=x86_64 bash scripts/build.sh
+          mv "$exe" build/x86_64
+          lipo -create build/arm64 build/x86_64 -output "$exe"
+          codesign --force --sign - "$app"
+          lipo "$exe" -verify_arch arm64 x86_64
+          codesign --verify --strict "$app"
+          diff -rq Assets/EmeraldAwakening "$app/Contents/Resources/EmeraldAwakening"
+          mkdir dist
+          ditto -c -k --keepParent "$app" dist/CodexOpenSkin-macOS-universal.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macOS-universal
+          path: dist/*.zip
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Windows x64
+        run: dotnet build Windows/OpenSkin.csproj --configuration Release --output dist/CodexOpenSkin
+      - name: Test native window tracking and package app
+        shell: pwsh
+        run: |
+          $dir = Resolve-Path dist/CodexOpenSkin
+          $report = Join-Path $env:RUNNER_TEMP smoke.txt
+          $p = Start-Process "$dir/CodexOpenSkin.exe" -ArgumentList "--self-test `"$report`"" -PassThru
+          if (-not $p.WaitForExit(60000)) { $p.Kill(); throw 'Window test timed out' }
+          Get-Content $report -ErrorAction Stop
+          if ($p.ExitCode -ne 0) { throw "Window test failed ($($p.ExitCode))" }
+          foreach ($file in Get-ChildItem Assets/EmeraldAwakening -File) {
+            $copy = Get-FileHash "$dir/EmeraldAwakening/$($file.Name)"
+            if ($copy.Hash -ne (Get-FileHash $file.FullName).Hash) { throw "Media mismatch: $file" }
+          }
+          Compress-Archive -Path $dir -DestinationPath dist/CodexOpenSkin-Windows-x64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Windows-x64
+          path: dist/*.zip
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: packages
+          merge-multiple: true
+      - name: Publish binaries and checksums
+        working-directory: packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          sha256sum *.zip > SHA256SUMS.txt
+          gh release create "$GITHUB_REF_NAME" *.zip SHA256SUMS.txt --verify-tag \
+            --title "Codex OpenSkin $GITHUB_REF_NAME · 翡翠觉醒" \
+            --notes 'macOS 13+（Apple Silicon / Intel）与 Windows 10/11 x64。解压后打开 CodexBootAnimation.app 或 CodexOpenSkin.exe，在菜单栏或系统托盘里选择播放。两个下载包均包含《翡翠觉醒》完整素材。'

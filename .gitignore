@@ -1,0 +1,12 @@
+build/
+.build/
+output/
+.DS_Store
+dist/
+Windows/bin/
+Windows/obj/
+Assets/background.png
+Assets/Emerald-Orbit*
+Assets/Paper-Swallow*
+scripts/render_orbit.py
+scripts/render_swallow.py
