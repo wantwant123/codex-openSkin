@@ -15,14 +15,15 @@ namespace OpenSkin
         readonly Forms.NotifyIcon tray = new Forms.NotifyIcon();
         readonly DispatcherTimer timer = new DispatcherTimer();
         readonly Dictionary<IntPtr,int> seen = new Dictionary<IntPtr,int>();
-        readonly string settings = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "CodexOpenSkin", "settings.txt");
+        readonly string settings;
+        Skin skin = Skin.DragonCodex;
         bool auto = true, ambient;
         DateTime replayUntil, pruneAt;
         IntPtr target;
         int targetPid;
         Playback playback;
         bool fullFilmPending;
+        internal readonly Forms.ToolStripMenuItem SkinMenu = new Forms.ToolStripMenuItem("皮肤");
         internal readonly Forms.ToolStripMenuItem ReplayItem = new Forms.ToolStripMenuItem("在 Codex 上播放开屏");
         internal readonly Forms.ToolStripMenuItem PreviewItem = new Forms.ToolStripMenuItem("在 Codex 上播放完整影片");
 
@@ -32,20 +33,24 @@ namespace OpenSkin
             using (var mutex = new Mutex(true, @"Local\CodexOpenSkin", out bool first)) {
                 if (!first) return 0;
                 var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+                foreach (var skin in Skins.All)
                 foreach (var name in new[] { "intro.mp4", "loop.mp4", "full_preview.mp4", "poster.jpg" })
-                    if (!File.Exists(Playback.Asset(name))) {
-                        MessageBox.Show("请先完整解压下载包。缺少 " + name, "Codex OpenSkin");
+                    if (!File.Exists(skin.Asset(name))) {
+                        MessageBox.Show("请先完整解压下载包。缺少 " + skin + "/" + name, "Codex OpenSkin");
                         return 1;
                     }
                 using (var host = new Program()) return app.Run();
             }
         }
 
-        internal Program()
+        internal Program(string settingsFile = null)
         {
+            settings = settingsFile ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "CodexOpenSkin", "settings.txt");
             if (File.Exists(settings)) {
                 try {
                     var flags = File.ReadAllLines(settings);
+                    skin = flags.Contains("skin=EmeraldAwakening") ? Skin.EmeraldAwakening : Skin.DragonCodex;
                     auto = !flags.Contains("auto=off"); ambient = flags.Contains("ambient=on");
                 } catch (IOException) {} catch (UnauthorizedAccessException) {}
             }
@@ -54,6 +59,17 @@ namespace OpenSkin
             enabled.Click += (s,e) => { auto = enabled.Checked; if (!auto) Stop(); Save(); };
             var loop = new Forms.ToolStripMenuItem("开屏后保留动态背景") { Checked = ambient, CheckOnClick = true };
             loop.Click += (s,e) => { ambient = loop.Checked; Stop(); Save(); };
+            foreach (var option in Skins.All) {
+                var item = new Forms.ToolStripMenuItem(option.Title()) { Checked = option == skin };
+                item.Click += (s,e) => {
+                    if (skin == option) return;
+                    Stop(); skin = option; Save();
+                    foreach (Forms.ToolStripMenuItem choice in SkinMenu.DropDownItems) choice.Checked = choice == item;
+                    tray.Text = "Codex · " + skin.Title();
+                };
+                SkinMenu.DropDownItems.Add(item);
+            }
+            menu.Items.Add(SkinMenu);
             menu.Items.Add(enabled); menu.Items.Add(loop);
             ReplayItem.Click += (s,e) => RequestPlayback(false);
             PreviewItem.Click += (s,e) => RequestPlayback(true);
@@ -61,7 +77,7 @@ namespace OpenSkin
             menu.Items.Add("立即关闭动画", null, (s,e) => Stop());
             menu.Items.Add("退出", null, (s,e) => Application.Current.Shutdown());
             tray.ContextMenuStrip = menu; tray.Icon = SystemIcons.Application;
-            tray.Text = "Codex · 翡翠觉醒"; tray.Visible = true;
+            tray.Text = "Codex · " + skin.Title(); tray.Visible = true;
             tray.DoubleClick += (s,e) => ReplayItem.PerformClick();
             timer.Interval = TimeSpan.FromMilliseconds(200);
             timer.Tick += (s,e) => Tick(); timer.Start();
@@ -71,11 +87,11 @@ namespace OpenSkin
         {
             try {
                 Directory.CreateDirectory(Path.GetDirectoryName(settings));
-                File.WriteAllLines(settings, new[] { auto ? "auto=on" : "auto=off", ambient ? "ambient=on" : "ambient=off" });
+                File.WriteAllLines(settings, new[] { auto ? "auto=on" : "auto=off", ambient ? "ambient=on" : "ambient=off", "skin=" + skin });
             } catch (Exception e) when (e is IOException || e is UnauthorizedAccessException) { Notify("无法保存设置。"); }
         }
 
-        void Notify(string message) => tray.ShowBalloonTip(3500, "Codex · 翡翠觉醒", message, Forms.ToolTipIcon.Info);
+        void Notify(string message) => tray.ShowBalloonTip(3500, "Codex · " + skin.Title(), message, Forms.ToolTipIcon.Info);
 
         void Tick()
         {
@@ -103,7 +119,7 @@ namespace OpenSkin
                 !DesktopWindow.IsCodex(foreground, pid)) return;
             seen[foreground] = pid; target = foreground; targetPid = pid;
             replayUntil = DateTime.MinValue;
-            playback = new Playback(target, manual && fullFilmPending, ambient, Stop, message => { Stop(); Notify(message); });
+            playback = new Playback(target, skin, manual && fullFilmPending, ambient, Stop, message => { Stop(); Notify(message); });
             timer.Interval = TimeSpan.FromMilliseconds(33);
             playback.Update(target, true);
         }

@@ -28,7 +28,7 @@ final class OverlaySession {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         panel.isExcludedFromWindowsMenu = true
         panel.ignoresMouseEvents = true
-        scene = AnimationView(frame: NSRect(origin: .zero, size: rect.size),
+        scene = AnimationView(frame: NSRect(origin: .zero, size: rect.size), skin: preferences.skin,
                               reducedMotion: preferences.reducedMotion || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
                               duration: preferences.introDuration)
         panel.contentView = scene
@@ -43,7 +43,7 @@ final class OverlaySession {
         skip.bezelStyle = .rounded
         skip.handler = { [weak self] in self?.reveal(reason: "skip") }
         skipPanel.contentView = skip
-        if preferences.introDuration <= AnimationView.filmDuration {
+        if preferences.introDuration <= preferences.skin.filmDuration {
             scene.onIntroEnded = { [weak self] in self?.reveal(reason: "intro_complete") }
         }
         panel.addChildWindow(skipPanel, ordered: .above)

@@ -35,7 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         guard lockFD >= 0, flock(lockFD, LOCK_EX | LOCK_NB) == 0 else { NSApp.terminate(nil); return }
         status = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         status.button?.image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: "Codex 开机动画")
-        status.button?.toolTip = "Codex · 翡翠觉醒"
+        status.button?.toolTip = "Codex · \(preferences.skin.title)"
         let menu = NSMenu(); menu.delegate = self; status.menu = menu
         rebuildMenu()
         let center = NSWorkspace.shared.notificationCenter
@@ -135,8 +135,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private func rebuildMenu() {
         guard let menu = status?.menu else { return }
         menu.removeAllItems()
-        let header = menu.addItem(withTitle: "Codex · 翡翠觉醒", action: nil, keyEquivalent: "")
+        let header = menu.addItem(withTitle: "Codex · \(preferences.skin.title)", action: nil, keyEquivalent: "")
         header.isEnabled = false
+        let skins = NSMenu(title: "皮肤")
+        for skin in Skin.allCases {
+            let item = skins.addItem(withTitle: skin.title, action: #selector(changeSkin(_:)), keyEquivalent: "")
+            item.target = self; item.representedObject = skin.rawValue
+            item.state = skin == preferences.skin ? .on : .off
+        }
+        menu.addItem(withTitle: "皮肤", action: nil, keyEquivalent: "").submenu = skins
         let item = menu.addItem(withTitle: "自动播放开屏", action: #selector(toggleEnabled), keyEquivalent: "")
         item.target = self; item.state = preferences.enabled ? .on : .off
         menu.addItem(.separator())
@@ -144,6 +151,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
                                 ("设置…", #selector(openSettings)), ("退出", #selector(quit))] {
             let item = menu.addItem(withTitle: title, action: action, keyEquivalent: ""); item.target = self
         }
+    }
+
+    @objc private func changeSkin(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String, let skin = Skin(rawValue: id), skin != preferences.skin else { return }
+        stop(reason: "skin_changed")
+        artworkPreview?.close()
+        preferences.select(skin); preferences.save()
+        status.button?.toolTip = "Codex · \(skin.title)"
+        settings?.title = "Codex · \(skin.title)"
+        refreshSettings()
     }
 
     @objc func openSettings() {
@@ -154,10 +171,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private func createSettings() {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 410, height: 390),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.title = "Codex · 翡翠觉醒"; window.isReleasedWhenClosed = false
+        window.title = "Codex · \(preferences.skin.title)"; window.isReleasedWhenClosed = false
         let stack = NSStackView(); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 14
         stack.edgeInsets = NSEdgeInsets(top: 22, left: 24, bottom: 22, right: 24)
-        let title = NSTextField(labelWithString: "翡翠觉醒开屏")
+        let title = NSTextField(labelWithString: "开屏设置")
         title.font = .systemFont(ofSize: 21, weight: .medium)
         stack.addArrangedSubview(title)
         stateLabel = NSTextField(labelWithString: lastStatus)
@@ -168,7 +185,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         for control in [enabled!, loop!, reduceMotion!] { stack.addArrangedSubview(control) }
         durationLabel = NSTextField(labelWithString: "")
         stack.addArrangedSubview(durationLabel!)
-        duration = NSSlider(value: preferences.introDuration, minValue: 2, maxValue: AnimationView.filmDuration,
+        duration = NSSlider(value: preferences.introDuration, minValue: 2, maxValue: preferences.skin.filmDuration,
                             target: self, action: #selector(settingsChanged))
         duration?.widthAnchor.constraint(equalToConstant: 350).isActive = true
         stack.addArrangedSubview(duration!)
@@ -194,8 +211,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         }
         let window = NSWindow(contentRect: NSRect(x: 160, y: 180, width: 1120, height: 630),
                               styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
-        window.title = "翡翠觉醒 · 动画预览"; window.isReleasedWhenClosed = false
-        let view = AnimationView(frame: NSRect(x: 0, y: 0, width: 1120, height: 630), reducedMotion: preferences.reducedMotion || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion, fullPreview: true)
+        window.title = "\(preferences.skin.title) · 动画预览"; window.isReleasedWhenClosed = false
+        let view = AnimationView(frame: NSRect(x: 0, y: 0, width: 1120, height: 630), skin: preferences.skin, reducedMotion: preferences.reducedMotion || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion, fullPreview: true)
         view.skip.handler = { [weak window] in window?.close() }
         window.contentView = view; window.delegate = self; artworkPreview = window
         view.onIntroEnded = { [weak view] in view?.pause(true) }
@@ -211,6 +228,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         enabled?.state = preferences.enabled ? .on : .off
         loop?.state = preferences.loopBackground ? .on : .off
         reduceMotion?.state = preferences.reducedMotion ? .on : .off
+        duration?.maxValue = preferences.skin.filmDuration
         duration?.doubleValue = preferences.introDuration
         durationLabel?.stringValue = String(format: "开屏时长 · %.1f 秒", preferences.introDuration)
         opacity?.doubleValue = preferences.backgroundOpacity
@@ -221,7 +239,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         preferences.enabled = enabled?.state == .on
         preferences.loopBackground = loop?.state == .on
         preferences.reducedMotion = reduceMotion?.state == .on
-        preferences.introDuration = duration?.doubleValue ?? AnimationView.filmDuration
+        preferences.introDuration = duration?.doubleValue ?? preferences.skin.filmDuration
         preferences.backgroundOpacity = opacity?.doubleValue ?? 0.1
         preferences.save(); refreshSettings(); rebuildMenu()
         // Apply changes on the next playback; closing the active overlay avoids

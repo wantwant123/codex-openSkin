@@ -28,6 +28,7 @@ jobs:
           codesign --force --sign - "$app"
           lipo "$exe" -verify_arch arm64 x86_64
           codesign --verify --strict "$app"
+          diff -rq Assets/DragonCodex "$app/Contents/Resources/DragonCodex"
           diff -rq Assets/EmeraldAwakening "$app/Contents/Resources/EmeraldAwakening"
           mkdir dist
           ditto -c -k --keepParent "$app" dist/CodexOpenSkin-macOS-universal.zip
@@ -55,8 +56,8 @@ jobs:
           if (-not $p.WaitForExit(60000)) { $p.Kill(); throw 'Window test timed out' }
           Get-Content $report -ErrorAction Stop
           if ($p.ExitCode -ne 0) { throw "Window test failed ($($p.ExitCode))" }
-          foreach ($file in Get-ChildItem Assets/EmeraldAwakening -File) {
-            $copy = Get-FileHash "$dir/EmeraldAwakening/$($file.Name)"
+          foreach ($file in Get-ChildItem Assets/DragonCodex,Assets/EmeraldAwakening -File) {
+            $copy = Get-FileHash "$dir/$($file.Directory.Name)/$($file.Name)"
             if ($copy.Hash -ne (Get-FileHash $file.FullName).Hash) { throw "Media mismatch: $file" }
           }
           Compress-Archive -Path $dir -DestinationPath dist/CodexOpenSkin-Windows-x64.zip
@@ -86,5 +87,5 @@ jobs:
           set -euo pipefail
           sha256sum *.zip > SHA256SUMS.txt
           gh release create "$GITHUB_REF_NAME" *.zip SHA256SUMS.txt --verify-tag \
-            --title "Codex OpenSkin $GITHUB_REF_NAME · 翡翠觉醒" \
-            --notes 'macOS 13+（Apple Silicon / Intel）与 Windows 10/11 x64。解压后打开 CodexBootAnimation.app 或 CodexOpenSkin.exe，在菜单栏或系统托盘里选择播放。两个下载包均包含《翡翠觉醒》完整素材。'
+            --title "Codex OpenSkin $GITHUB_REF_NAME · Dragon Codex" \
+            --notes 'macOS 13+（Apple Silicon / Intel）与 Windows 10/11 x64。解压后打开 CodexBootAnimation.app 或 CodexOpenSkin.exe，在菜单栏或系统托盘里选择播放。默认皮肤为 Dragon Codex，可在皮肤菜单切换至《翡翠觉醒》。'

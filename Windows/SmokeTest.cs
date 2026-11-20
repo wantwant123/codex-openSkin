@@ -57,13 +57,15 @@ namespace OpenSkin
             Check(!DesktopWindow.IsCodex(new WindowInteropHelper(unrelated).Handle, Process.GetCurrentProcess().Id),
                 "Reject unrelated process even with Codex window title");
 
-            using (var host = new Program()) {
+            string settingsFile = Path.Combine(Path.GetDirectoryName(fixture.MainModule.FileName), "skin-smoke-" + Guid.NewGuid() + ".txt");
+            File.WriteAllLines(settingsFile, new[] { "auto=off", "ambient=off" }); // v0.5.x settings
+            using (var host = new Program(settingsFile)) {
                 host.ReplayItem.PerformClick();
                 WaitFor(() => Film(app)?.IsVisible == true, "Tray replay did not cover Codex");
                 CheckAttached(app, target);
                 var movie = ((Grid)Film(app).Content).Children.OfType<MediaElement>().Single();
                 WaitFor(() => movie.NaturalVideoWidth > 0 && movie.Position.TotalMilliseconds > 150, "Intro did not play");
-                Check(Path.GetFileName(movie.Source.LocalPath) == "intro.mp4", "Replay media");
+                Check(movie.Source.LocalPath == Skin.DragonCodex.Asset("intro.mp4"), "Replay media");
                 Check(DesktopWindow.Place(target, new DesktopWindow.Rect { Left=125, Top=105, Right=805, Bottom=525 }), "Move target");
                 Pump(200);
                 CheckAttached(app, target);
@@ -80,13 +82,22 @@ namespace OpenSkin
                 WaitFor(() => Film(app)?.IsVisible == true, "Full film must restore and cover Codex");
                 CheckAttached(app, target);
                 movie = ((Grid)Film(app).Content).Children.OfType<MediaElement>().Single();
-                Check(Path.GetFileName(movie.Source.LocalPath) == "full_preview.mp4", "Full film media");
+                Check(movie.Source.LocalPath == Skin.DragonCodex.Asset("full_preview.mp4"), "Full film media");
                 Check(app.Windows.Cast<Window>().All(w => w == unrelated || !w.ShowInTaskbar), "No separate player");
+                host.SkinMenu.DropDownItems[1].PerformClick();
+                host.ReplayItem.PerformClick();
+                WaitFor(() => Film(app)?.IsVisible == true, "Selected skin must cover Codex");
+                movie = ((Grid)Film(app).Content).Children.OfType<MediaElement>().Single();
+                Check(movie.Source.LocalPath == Skin.EmeraldAwakening.Asset("intro.mp4"), "Selected Emerald intro");
                 fixture.CloseMainWindow();
                 WaitFor(() => fixture.HasExited && Film(app) == null, "Owner exit must clear overlay");
                 host.PreviewItem.PerformClick(); Pump(300);
                 Check(Film(app) == null && app.Windows.Count == 1, "No target must not open a player");
             }
+            using (var restarted = new Program(settingsFile)) {
+                Check(((System.Windows.Forms.ToolStripMenuItem)restarted.SkinMenu.DropDownItems[1]).Checked, "Remember chosen skin");
+            }
+            File.Delete(settingsFile);
             unrelated.Close();
         }
 
@@ -94,8 +105,9 @@ namespace OpenSkin
         {
             try {
                 var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+                foreach (var skin in Skins.All)
                 foreach (var name in new[] { "intro.mp4", "loop.mp4", "full_preview.mp4", "poster.jpg" })
-                    Check(new FileInfo(Playback.Asset(name)).Length > 0, "Missing " + name);
+                    Check(new FileInfo(skin.Asset(name)).Length > 0, "Missing " + name);
                 using (var fixture = Process.Start(fixturePath)) {
                     try { Exercise(app, fixture); }
                     finally { if (!fixture.HasExited) fixture.Kill(); }

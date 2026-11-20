@@ -2,7 +2,7 @@ import AppKit
 import AVFoundation
 
 final class AnimationView: NSView {
-    static let filmDuration = 11.0
+    private let skin: Skin
     let skip = SkipButton(action: {})
     var onIntroEnded: (() -> Void)?
     private(set) var hasMovie = false
@@ -17,14 +17,15 @@ final class AnimationView: NSView {
     private var introRate: Float = 1
     private var reducedMotion: Bool
 
-    init(frame: NSRect, reducedMotion: Bool, duration: Double = filmDuration, fullPreview: Bool = false) {
+    init(frame: NSRect, skin: Skin, reducedMotion: Bool, duration: Double? = nil, fullPreview: Bool = false) {
+        self.skin = skin
         self.reducedMotion = reducedMotion
         super.init(frame: frame)
         wantsLayer = true
         layer?.backgroundColor = NSColor.black.cgColor
         layer?.masksToBounds = true
         layer?.cornerRadius = 12
-        if let url = Bundle.main.url(forResource: "poster", withExtension: "jpg", subdirectory: "EmeraldAwakening"),
+        if let url = Bundle.main.url(forResource: "poster", withExtension: "jpg", subdirectory: skin.rawValue),
            let image = NSImage(contentsOf: url) {
             poster.contents = image.cgImage(forProposedRect: nil, context: nil, hints: nil)
         }
@@ -35,7 +36,7 @@ final class AnimationView: NSView {
         layer?.addSublayer(video)
         video.isHidden = true
         addSubview(skip)
-        if !reducedMotion, let url = Bundle.main.url(forResource: fullPreview ? "full_preview" : "intro", withExtension: "mp4", subdirectory: "EmeraldAwakening") {
+        if !reducedMotion, let url = Bundle.main.url(forResource: fullPreview ? "full_preview" : "intro", withExtension: "mp4", subdirectory: skin.rawValue) {
             let item = AVPlayerItem(url: url)
             player.actionAtItemEnd = .pause
             player.volume = 0.55
@@ -43,7 +44,7 @@ final class AnimationView: NSView {
             video.player = player
             video.isHidden = false
             hasMovie = true
-            introRate = fullPreview ? 1 : Float(Self.filmDuration / min(Self.filmDuration, max(2, duration)))
+            introRate = fullPreview ? 1 : Float(skin.filmDuration / min(skin.filmDuration, max(2, duration ?? skin.filmDuration)))
             endObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime,
                 object: item, queue: .main) { [weak self] _ in
                     self?.onIntroEnded?()
@@ -85,7 +86,7 @@ final class AnimationView: NSView {
         skip.isHidden = true
         inBackground = true
         player.isMuted = true
-        guard !reducedMotion, let url = Bundle.main.url(forResource: "loop", withExtension: "mp4", subdirectory: "EmeraldAwakening") else { return }
+        guard !reducedMotion, let url = Bundle.main.url(forResource: "loop", withExtension: "mp4", subdirectory: skin.rawValue) else { return }
         player.removeAllItems()
         player.actionAtItemEnd = .advance
         looper = AVPlayerLooper(player: player, templateItem: AVPlayerItem(url: url))

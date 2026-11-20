@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -9,9 +8,6 @@ namespace OpenSkin
 {
     internal sealed class Playback : IDisposable
     {
-        internal static string Asset(string name) =>
-            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "EmeraldAwakening", name);
-
         readonly Window film, controls;
         readonly MediaElement player;
         readonly Image poster;
@@ -22,13 +18,13 @@ namespace OpenSkin
         bool visible, looping, disposed;
         DesktopWindow.Rect? lastBounds;
 
-        internal Playback(IntPtr owner, bool fullFilm, bool ambient, Action finish, Action<string> failed)
+        internal Playback(IntPtr owner, Skin skin, bool fullFilm, bool ambient, Action finish, Action<string> failed)
         {
             this.ambient = ambient && !fullFilm;
             this.finish = finish;
             this.failed = failed;
             var scene = new Grid();
-            poster = new Image { Source = new BitmapImage(new Uri(Asset("poster.jpg"))), Stretch = Stretch.UniformToFill };
+            poster = new Image { Source = new BitmapImage(new Uri(skin.Asset("poster.jpg"))), Stretch = Stretch.UniformToFill };
             player = new MediaElement { LoadedBehavior = MediaState.Manual, UnloadedBehavior = MediaState.Manual,
                 Stretch = Stretch.Uniform, IsHitTestVisible = false };
             scene.Children.Add(player);
@@ -49,11 +45,11 @@ namespace OpenSkin
                 if (!this.ambient) { finish(); return; }
                 if (!looping) {
                     looping = true; controls.Hide(); film.Opacity = 0.12;
-                    player.IsMuted = true; player.Source = new Uri(Asset("loop.mp4"));
+                    player.IsMuted = true; player.Source = new Uri(skin.Asset("loop.mp4"));
                 } else player.Position = TimeSpan.Zero;
                 if (visible) player.Play();
             };
-            player.Source = new Uri(Asset(fullFilm ? "full_preview.mp4" : "intro.mp4"));
+            player.Source = new Uri(skin.Asset(fullFilm ? "full_preview.mp4" : "intro.mp4"));
         }
 
         static Window Panel(UIElement content) => new Window { WindowStyle = WindowStyle.None,

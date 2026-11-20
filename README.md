@@ -1,6 +1,8 @@
-# Codex OpenSkin · 翡翠觉醒
+# Codex OpenSkin
 
-在 Codex 桌面窗口上播放《翡翠觉醒》。11 秒有声开屏从金色星光和线稿过渡到银发女孩与掌心水晶。打开循环背景后，开屏会衔接一段 6 秒的无声动画。菜单中另有 23 秒的完整成片预览。
+默认皮肤 **Dragon Codex** 以紫龙召唤为主题，包含 14 秒有声开屏、6 秒无声循环和 26 秒完整影片。原有皮肤《翡翠觉醒》包含 11 秒开屏、6 秒循环和 23 秒完整影片。
+
+从 Mac 菜单栏 ✨ 或 Windows 托盘右键菜单打开「皮肤」即可切换，下次播放生效，重启后保留选择。升级时先退出旧版，再启动新版。
 
 ## 下载与使用
 
@@ -14,7 +16,7 @@
 先启动 OpenSkin，再打开 Codex 桌面窗口。默认每个新窗口播放一次，右上角可跳过，动画其余区域支持点击穿透。拖动或缩放 Codex 时画面随窗口移动，切换到其他窗口或最小化时隐藏并暂停。
 
 - **播放一次开屏**可以在已有窗口重播。Windows 上双击托盘图标，或选择「在 Codex 上播放开屏」，即可将已有 Codex 窗口调到前台播放。系统限制窗口激活时，在 15 秒内切回 Codex 即可。
-- **完整预览**可按原速播放 23 秒原片。Windows 托盘中的「在 Codex 上播放完整影片」同样覆盖 Codex 窗口。Mac 的独立预览入口在「设置…」。
+- **完整预览**可按原速播放当前皮肤的原片。Windows 托盘中的「在 Codex 上播放完整影片」同样覆盖 Codex 窗口。Mac 的独立预览入口在「设置…」。
 - **动态背景**默认关闭。Mac 可在设置中调整透明度和开屏时长，Windows 可在托盘菜单开启低透明度背景。
 - 菜单中的**退出**会关闭助手。应用独立运行，不修改 Codex 安装文件。
 
@@ -44,7 +46,7 @@ bash scripts/build.sh
 bash scripts/test.sh --fixture
 ```
 
-打开 `build/FollowFixture.app` 和 `build/FollowOverlay.app`，在浮层设置中点“播放一次”，再在测试窗口点“运行跟随验收”。测试窗口只操作它自己的窗口；测试浮层的目标仅为 `local.codexboot.fixture`。持续跟随模式把开屏暂时延长到 3600 秒，不影响正式应用的 11 秒默认值。
+打开 `build/FollowFixture.app` 和 `build/FollowOverlay.app`，在浮层设置中点“播放一次”，再在测试窗口点“运行跟随验收”。测试窗口只操作它自己的窗口；测试浮层的目标仅为 `local.codexboot.fixture`。持续跟随模式把开屏暂时延长到 3600 秒，不影响正式应用的默认时长。
 
 验收会依次移动、缩放、最小化、恢复、新建第二窗口、切回第一窗口。日志在 `output/follow-test/events.jsonl`，包含目标与浮层边界，可检查是否完全一致。
 
@@ -56,4 +58,4 @@ Windows 自动化检查在原生测试窗口上验证前台进程筛选、窗口
 
 ## 来源
 
-《翡翠觉醒》的视频由用户提供，视频授权与本项目代码分开。窗口跟随方案参考 [wynneceles/ai-boot-animations](https://github.com/wynneceles/ai-boot-animations)。本项目代码许可见 `LICENSE`。
+Dragon Codex 与《翡翠觉醒》的视频由用户提供，视频授权与本项目代码分开。窗口跟随方案参考 [wynneceles/ai-boot-animations](https://github.com/wynneceles/ai-boot-animations)。本项目代码许可见 `LICENSE`。

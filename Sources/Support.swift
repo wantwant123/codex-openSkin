@@ -1,10 +1,24 @@
 import AppKit
 
+enum Skin: String, CaseIterable {
+    case dragon = "DragonCodex"
+    case emerald = "EmeraldAwakening"
+    var title: String { self == .dragon ? "Dragon Codex" : "翡翠觉醒" }
+    var filmDuration: Double { self == .dragon ? 14 : 11 }
+}
+
 struct Preferences: Codable {
     var enabled = true
     var loopBackground = false
     var backgroundOpacity = 0.10
-    var introDuration = AnimationView.filmDuration
+    var introDuration = Skin.dragon.filmDuration
+    private var skinID: String? = Skin.dragon.rawValue
+    var skin: Skin { skinID.flatMap(Skin.init(rawValue:)) ?? .dragon }
+
+    mutating func select(_ next: Skin) {
+        introDuration = introDuration == skin.filmDuration ? next.filmDuration : min(introDuration, next.filmDuration)
+        skinID = next.rawValue
+    }
     var reducedMotion = false
     var timingVersion: Int? = 1
 
@@ -20,11 +34,12 @@ struct Preferences: Codable {
         guard let data = try? Data(contentsOf: url),
               var value = try? JSONDecoder().decode(Preferences.self, from: data) else { return Preferences() }
         value.backgroundOpacity = min(0.3, max(0, value.backgroundOpacity))
-        if value.timingVersion == nil && value.introDuration == 9.6 {
-            value.introDuration = AnimationView.filmDuration
+        if value.skinID == nil && (value.introDuration == 11 || (value.timingVersion == nil && value.introDuration == 9.6)) {
+            value.introDuration = Skin.dragon.filmDuration
         }
+        value.skinID = value.skin.rawValue
         value.timingVersion = 1
-        value.introDuration = min(AnimationView.filmDuration, max(2, value.introDuration))
+        value.introDuration = min(value.skin.filmDuration, max(2, value.introDuration))
         return value
     }
     func save() {
